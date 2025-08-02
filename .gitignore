@@ -1,0 +1,60 @@
+# Gradle files
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Local configuration file (contains SDK path)
+local.properties
+
+# Log files
+*.log
+
+# Android Studio/IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+*.hprof
+
+# Build output
+app/build/
+
+# Kotlin build folders
+.kotlinc/
+app/build/kotlin/
+
+# Generated files
+app/build/generated/
+
+# Signing files
+*.jks
+*.keystore
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# VSCode settings
+.vscode/
+
+# Crashlytics and Firebase
+crashlytics-build.properties
+fabric.properties
+
+# Misc
+*.apk
+*.ap_
+*.dex
+*.class
+*.jar
+*.war
+*.ear
+*.db
+*.sqlite
+*.zip
+*.tar.gz
+*.tgz
+*.bak
+*.swp
+*.swo
