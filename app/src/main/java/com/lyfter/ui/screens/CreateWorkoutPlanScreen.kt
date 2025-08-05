@@ -30,7 +30,7 @@ import kotlinx.coroutines.flow.first
 @Composable
 fun CreateWorkoutPlanScreen(
     navController: NavController,
-    planId: Long?,
+    planId: Int?,
     viewModel: WorkoutPlanViewModel = viewModel(
         factory = WorkoutPlanViewModelFactory(
             LocalContext.current.applicationContext as LyfterApplication
@@ -406,19 +406,35 @@ private fun AddExerciseDialog(
                 
                 Text("Muscle Group:", style = MaterialTheme.typography.bodyMedium)
                 
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 200.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                var expanded by remember { mutableStateOf(false) }
+                
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = !expanded }
                 ) {
-                    muscleGroups.forEach { muscle ->
-                        FilterChip(
-                            selected = muscleGroup == muscle,
-                            onClick = { muscleGroup = muscle },
-                            label = { Text(muscle) },
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                    OutlinedTextField(
+                        value = muscleGroup,
+                        onValueChange = { },
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor()
+                    )
+                    
+                    ExposedDropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        muscleGroups.forEach { muscle ->
+                            DropdownMenuItem(
+                                text = { Text(muscle) },
+                                onClick = {
+                                    muscleGroup = muscle
+                                    expanded = false
+                                }
+                            )
+                        }
                     }
                 }
             }

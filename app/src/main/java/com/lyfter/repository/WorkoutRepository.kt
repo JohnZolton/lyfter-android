@@ -42,13 +42,15 @@ class WorkoutRepository(
         return database.workoutDao().getLatestByCategory(category)
     }
 
-    suspend fun getWorkoutByCategoryAndSequence(category: String, sequenceNumber: Int): Workout? {
-        return database.workoutDao().getByCategoryAndSequence(category, sequenceNumber)
+    suspend fun getWorkoutByCategoryAndCycle(category: String, cycleNumber: Int): Workout? {
+        return database.workoutDao().getByCategoryAndCycle(category, cycleNumber)
     }
 
-    suspend fun getNextSequenceNumber(category: String): Int {
-        return database.workoutDao().getCategoryCount(category) + 1
+    suspend fun shouldApplyMicroDeload(category: String, cycleNumber: Int): Boolean {
+        // Apply micro deload every 3rd workout in a cycle
+        return cycleNumber % 3 == 0
     }
+
 
     // WorkoutExercise operations
     suspend fun insertWorkoutExercise(workoutExercise: WorkoutExercise): Long {
@@ -223,26 +225,6 @@ class WorkoutRepository(
         }
     }
 
-    // Micro deload functionality
-    suspend fun shouldApplyMicroDeload(category: String, sequenceNumber: Int): Boolean {
-        if (sequenceNumber <= 1) return false
-        
-        val previousWorkout = database.workoutDao().getByCategoryAndSequence(category, sequenceNumber - 1)
-            ?: return false
-        val currentWorkout = database.workoutDao().getByCategoryAndSequence(category, sequenceNumber)
-            ?: return false
-            
-        val previousSets = getAllSetsForWorkout(previousWorkout.id)
-        val currentSets = getAllSetsForWorkout(currentWorkout.id)
-        
-        if (previousSets.isEmpty()) return false
-        
-        // Calculate total volume for comparison
-        val previousVolume = previousSets.sumOf { it.reps * it.weight }
-        val currentVolume = currentSets.sumOf { it.reps * it.weight }
-        
-        return currentVolume < previousVolume * 0.9 // More than 10% regression
-    }
 
     suspend fun applyMicroDeload(workoutId: Int) {
         val exercises = database.workoutExerciseDao().getByWorkoutIdSync(workoutId)
@@ -294,18 +276,54 @@ class WorkoutRepository(
         return database.workoutExerciseDao().getByWorkoutAndExercise(workoutId, exerciseId)
     }
 
+    suspend fun updateWorkoutExercise(workoutExercise: WorkoutExercise) {
+        database.workoutExerciseDao().update(workoutExercise)
+    }
+
+    suspend fun moveExerciseUp(workoutExerciseId: Int) {
+        val exercise = getWorkoutExerciseById(workoutExerciseId) ?: return
+        val exercises = getWorkoutExercisesByWorkoutIdSync(exercise.workoutId)
+            .sortedBy { it.orderIndex }
+        
+        val currentIndex = exercises.indexOfFirst { it.id == workoutExerciseId }
+        if (currentIndex > 0) {
+            val currentExercise = exercises[currentIndex]
+            val previousExercise = exercises[currentIndex - 1]
+            
+            // Swap order indices
+            database.workoutExerciseDao().updateOrderIndex(currentExercise.id, previousExercise.orderIndex)
+            database.workoutExerciseDao().updateOrderIndex(previousExercise.id, currentExercise.orderIndex)
+        }
+    }
+
+    suspend fun moveExerciseDown(workoutExerciseId: Int) {
+        val exercise = getWorkoutExerciseById(workoutExerciseId) ?: return
+        val exercises = getWorkoutExercisesByWorkoutIdSync(exercise.workoutId)
+            .sortedBy { it.orderIndex }
+        
+        val currentIndex = exercises.indexOfFirst { it.id == workoutExerciseId }
+        if (currentIndex < exercises.size - 1) {
+            val currentExercise = exercises[currentIndex]
+            val nextExercise = exercises[currentIndex + 1]
+            
+            // Swap order indices
+            database.workoutExerciseDao().updateOrderIndex(currentExercise.id, nextExercise.orderIndex)
+            database.workoutExerciseDao().updateOrderIndex(nextExercise.id, currentExercise.orderIndex)
+        }
+    }
+
     // Comparison logic for status indicators
     suspend fun getPreviousCycleSet(
         exerciseId: Int,
         category: String,
-        currentSequenceNumber: Int,
+        currentCycleNumber: Int,
         setNumber: Int
     ): ExerciseSet? {
-        val previousSequenceNumber = currentSequenceNumber - 1
-        if (previousSequenceNumber < 1) return null
+        val previousCycleNumber = currentCycleNumber - 1
+        if (previousCycleNumber < 1) return null
 
-        val previousWorkout = database.workoutDao()
-            .getByCategoryAndSequence(category, previousSequenceNumber) ?: return null
+        // Get the previous workout by category and cycle number
+        val previousWorkout = database.workoutDao().getByCategoryAndCycle(category, previousCycleNumber) ?: return null
         
         val previousWorkoutExercise = database.workoutExerciseDao()
             .getByWorkoutAndExercise(previousWorkout.id, exerciseId) ?: return null
@@ -317,13 +335,13 @@ class WorkoutRepository(
     suspend fun compareWithPreviousCycle(
         exerciseId: Int,
         category: String,
-        currentSequenceNumber: Int,
+        currentCycleNumber: Int,
         setNumber: Int,
         currentReps: Int,
         currentWeight: Double
     ): ComparisonResult {
         val previousSet = getPreviousCycleSet(
-            exerciseId, category, currentSequenceNumber, setNumber
+            exerciseId, category, currentCycleNumber, setNumber
         ) ?: return ComparisonResult.NO_PREVIOUS
 
         val repsImproved = currentReps > previousSet.reps

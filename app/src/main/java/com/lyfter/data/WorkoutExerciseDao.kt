@@ -14,9 +14,6 @@ interface WorkoutExerciseDao {
     @Insert
     suspend fun insert(workoutExercise: WorkoutExercise): Long
 
-    @Update
-    suspend fun update(workoutExercise: WorkoutExercise)
-
     @Delete
     suspend fun delete(workoutExercise: WorkoutExercise)
 
@@ -37,4 +34,10 @@ interface WorkoutExerciseDao {
 
     @Query("SELECT * FROM workout_exercises WHERE workoutId = :workoutId AND completed = 0 ORDER BY orderIndex LIMIT 1")
     suspend fun getNextUncompletedExercise(workoutId: Int): WorkoutExercise?
+
+    @Query("UPDATE workout_exercises SET orderIndex = :orderIndex WHERE id = :id")
+    suspend fun updateOrderIndex(id: Int, orderIndex: Int)
+
+    @Update
+    suspend fun update(workoutExercise: WorkoutExercise)
 }

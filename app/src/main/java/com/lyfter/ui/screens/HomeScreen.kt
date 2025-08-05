@@ -1,6 +1,8 @@
 package com.lyfter.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
@@ -10,14 +12,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.lyfter.LyfterApplication
 import com.lyfter.model.Workout
 import com.lyfter.ui.viewmodel.WorkoutPlanViewModel
 import com.lyfter.ui.viewmodel.WorkoutPlanViewModelFactory
-import kotlinx.coroutines.launch
+import kotlin.OptIn
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -112,15 +113,33 @@ fun HomeScreen(
                     }
                 }
             } else {
-                // Has workout plan - show workout stack
-                Text(
-                    text = "Your Workout Plan",
-                    style = MaterialTheme.typography.headlineMedium,
-                    modifier = Modifier
-                        .padding(bottom = 16.dp)
-                        .align(Alignment.Start)
-                )
+                // Has workout plan - show current workout at top and upcoming workouts below
+                // Sort workouts by cycle number
+                val sortedWorkouts = allWorkouts.sortedBy { it.cycleNumber }
                 
+                // Display the current workout (next workout that is not completed) at the top
+                nextWorkout?.let { currentWorkout ->
+                    Text(
+                        text = "Current Workout",
+                        style = MaterialTheme.typography.headlineMedium,
+                        modifier = Modifier
+                            .padding(bottom = 16.dp)
+                            .align(Alignment.Start)
+                    )
+                    
+                    WorkoutCard(
+                        workout = currentWorkout,
+                        isNext = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                        onStartWorkout = { 
+                            navController.navigate("workout/${currentWorkout.id}") 
+                        }
+                    )
+                }
+                
+                // Display upcoming workouts below (grayed out)
                 if (allWorkouts.isEmpty()) {
                     Box(
                         modifier = Modifier
@@ -134,77 +153,31 @@ fun HomeScreen(
                         )
                     }
                 } else {
-                    // Sort workouts by sequence number
-                    val sortedWorkouts = allWorkouts.sortedBy { it.sequenceNumber }
+                    Text(
+                        text = "Upcoming Workouts",
+                        style = MaterialTheme.typography.headlineMedium,
+                        modifier = Modifier
+                            .padding(vertical = 16.dp)
+                            .align(Alignment.Start)
+                    )
                     
-                    // Display workouts as a stack of cards
-                    Box(
+                    // Display upcoming workouts in a list
+                    LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
                     ) {
-                        sortedWorkouts.forEachIndexed { index, workout ->
-                            // Calculate offset for stacking effect (first item on top)
-                            val offset = index * 16 // 16dp offset per card
-                            
+                        items(sortedWorkouts.filter { it.id != nextWorkout?.id }) { workout ->
                             WorkoutCard(
                                 workout = workout,
-                                isNext = workout.id == nextWorkout?.id,
+                                isNext = false,
                                 modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .offset(y = offset.dp)
-                                    .zIndex((sortedWorkouts.size - index).toFloat()),
+                                    .fillMaxWidth()
+                                    .padding(bottom = 8.dp),
                                 onStartWorkout = { 
                                     navController.navigate("workout/${workout.id}") 
-                                },
-                                onClick = {
-                                    navController.navigate("workout/${workout.id}")
                                 }
                             )
-                        }
-                    }
-                }
-                
-                // Show next workout info and actions at the bottom
-                nextWorkout?.let { workout ->
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = "Next Up: ${workout.name}",
-                                style = MaterialTheme.typography.headlineSmall,
-                                modifier = Modifier.padding(bottom = 8.dp)
-                            )
-                            
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
-                            ) {
-                                Button(
-                                    onClick = { navController.navigate("workout/${workout.category}") },
-                                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
-                                ) {
-                                    Text("Start")
-                                }
-                                
-                                OutlinedButton(
-                                    onClick = { viewModel.skipNextWorkout() },
-                                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
-                                ) {
-                                    Text("Skip")
-                                }
-                            }
                         }
                     }
                 }
@@ -272,7 +245,7 @@ fun WorkoutCard(
             }
             
             Text(
-                text = "Sequence: ${workout.sequenceNumber}",
+                text = "Cycle: ${workout.cycleNumber}",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 8.dp)
             )
@@ -287,17 +260,16 @@ fun WorkoutCard(
                     MaterialTheme.colorScheme.onSurfaceVariant
             )
             
-            if (!workout.completed && !isNext) {
-                Button(
-                    onClick = onStartWorkout,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp),
-                    enabled = !isNext // Only enable if it's not already the next one
-                ) {
-                    Text("Start Workout")
+                if (!workout.completed) {
+                    Button(
+                        onClick = onStartWorkout,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp)
+                    ) {
+                        Text("Start Workout")
+                    }
                 }
-            }
         }
     }
 }

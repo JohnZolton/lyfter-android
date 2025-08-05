@@ -47,7 +47,7 @@ fun WorkoutScreen(
     val exercises by viewModel.workoutExercises.collectAsStateWithLifecycle()
     val sets by viewModel.sets.collectAsStateWithLifecycle()
     val preSurvey by viewModel.preExerciseSurvey.collectAsStateWithLifecycle()
-    val showMicroDeload by viewModel.showMicroDeloadNotification.collectAsStateWithLifecycle()
+    val showMicroDeload by viewModel.showSanctionNotification.collectAsStateWithLifecycle()
     
     // Survey states
     var showPreSurvey by remember { mutableStateOf(false) }
@@ -55,15 +55,13 @@ fun WorkoutScreen(
     var surveyForExercise by remember { mutableStateOf<WorkoutExercise?>(null) }
     
     LaunchedEffect(workoutId) {
-        // First get the workout to get its category
-        val workout = viewModel.getWorkoutById(workoutId)
-        if (workout != null) {
-            viewModel.loadWorkout(workout.category)
-            // Only show pre-survey for non-first workout cycles
-            if (workout.sequenceNumber > 1) {
-                showPreSurvey = true
-            }
-        }
+        // Load the specific workout by ID
+        viewModel.loadWorkoutById(workoutId)
+    }
+    
+    // Show pre-survey for non-first workout cycles
+    LaunchedEffect(workout) {
+        showPreSurvey = workout?.cycleNumber ?: 0 > 1
     }
 
     // Pre-exercise survey dialog
@@ -80,8 +78,8 @@ fun WorkoutScreen(
     // Micro deload notification
     if (showMicroDeload) {
         MicroDeloadNotificationDialog(
-            onDismissRequest = { viewModel.dismissMicroDeloadNotification() },
-            onContinue = { viewModel.dismissMicroDeloadNotification() }
+            onDismissRequest = { viewModel.dismissMicroDeloadNotificationSanction() },
+            onContinue = { viewModel.dismissMicroDeloadNotificationSanction() }
         )
     }
 
@@ -108,7 +106,7 @@ fun WorkoutScreen(
         topBar = {
             TopAppBar(
                 title = { 
-                    Text("${workout?.name.orEmpty()} #${workout?.sequenceNumber ?: ""}") 
+                    Text("${workout?.name.orEmpty()} #${workout?.cycleNumber ?: ""}") 
                 },
                 navigationIcon = {
                     IconButton(onClick = { navController.navigateUp() }) {
@@ -125,17 +123,6 @@ fun WorkoutScreen(
                 .padding(16.dp)
         ) {
             workout?.let { currentWorkout ->
-                // Survey status indicators
-                var completedExercises = 0
-                exercises.forEach { exercise ->
-                    val exerciseSurveys = sets.filter { it.workoutExerciseId == exercise.id }
-                        .mapNotNull { 
-                            // For simplicity, we'll consider an exercise completed when user fills survey
-                            true // Actual survey check would be from repository
-                        }
-                    if (exercise.completed) completedExercises++
-                }
-                
                 // Display exercises as a stack of cards
                 Box(
                     modifier = Modifier
@@ -162,6 +149,8 @@ fun WorkoutScreen(
                                 workoutExercise = workoutExercise,
                                 sets = exerciseSets,
                                 isCompleted = isCompleted,
+                                workoutCategory = currentWorkout.category,
+                                workoutcycleNumber = currentWorkout.cycleNumber ?: 0,
                                 onSetUpdate = { setNumber, reps, weight ->
                                     viewModel.updateSet(workoutExercise.id, setNumber, reps, weight)
                                 },
@@ -169,7 +158,7 @@ fun WorkoutScreen(
                                     viewModel.compareSet(
                                         workoutExercise.exerciseId,
                                         currentWorkout.category,
-                                        currentWorkout.sequenceNumber ?: 0,
+                                        currentWorkout.cycleNumber ?: 0,
                                         setNumber,
                                         reps,
                                         weight
@@ -186,6 +175,12 @@ fun WorkoutScreen(
                                     surveyForExercise = workoutExercise
                                     showExerciseSurvey = true
                                 },
+                                onMoveUp = {
+                                    viewModel.moveExerciseUp(workoutExercise.id)
+                                },
+                                onMoveDown = {
+                                    viewModel.moveExerciseDown(workoutExercise.id)
+                                },
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)
                                     .offset(y = offset.dp)
@@ -193,6 +188,23 @@ fun WorkoutScreen(
                             )
                         }
                     }
+                }
+                
+                // Exit workout button
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = {
+                        viewModel.exitWorkout(workoutId)
+                        navController.navigateUp()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary
+                    )
+                ) {
+                    Icon(Icons.Default.ExitToApp, contentDescription = "Exit")
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Exit Workout")
                 }
             }
         }
@@ -204,13 +216,19 @@ fun ExerciseCard(
     workoutExercise: WorkoutExercise,
     sets: List<ExerciseSet>,
     isCompleted: Boolean,
+    workoutCategory: String,
+    workoutcycleNumber: Int,
     onSetUpdate: (Int, Int, Double) -> Unit,
     onCompareSet: (Int, Int, Double) -> Unit,
     onAddSet: () -> Unit,
     onRemoveSet: () -> Unit,
     onCompleteExercise: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+    
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -230,8 +248,52 @@ fun ExerciseCard(
             ) {
                 Text(
                     text = workoutExercise.exerciseName,
-                    style = MaterialTheme.typography.headlineSmall
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.weight(1f)
                 )
+                
+                Box {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "More options"
+                        )
+                    }
+                    
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Add Set") },
+                            onClick = {
+                                onAddSet()
+                                showMenu = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Remove Set") },
+                            onClick = {
+                                onRemoveSet()
+                                showMenu = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Move Up") },
+                            onClick = {
+                                onMoveUp()
+                                showMenu = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Move Down") },
+                            onClick = {
+                                onMoveDown()
+                                showMenu = false
+                            }
+                        )
+                    }
+                }
                 
                 if (isCompleted) {
                     Icon(
@@ -247,56 +309,25 @@ fun ExerciseCard(
             sets.forEach { set ->
                 SetRow(
                     set = set,
+                    targetReps = workoutExercise.targetReps.split(",").first().toIntOrNull() ?: 10,
+                    targetWeight = workoutExercise.targetWeight,
+                    workoutcycleNumber = workoutcycleNumber,
                     onUpdate = { reps, weight ->
                         onSetUpdate(set.setNumber, reps, weight)
+                        // Check if all sets for this exercise have values and trigger survey automatically
+                        val allSetsHaveValues = sets.all { 
+                            val setReps = if (it.setNumber == set.setNumber) reps else it.reps
+                            val setWeight = if (it.setNumber == set.setNumber) weight else it.weight
+                            setReps > 0 && setWeight > 0.0
+                        }
+                        if (allSetsHaveValues && sets.isNotEmpty()) {
+                            onCompleteExercise()
+                        }
                     },
                     onCompare = { reps, weight ->
                         onCompareSet(set.setNumber, reps, weight)
                     }
                 )
-            }
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(
-                    onClick = onAddSet,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
-                    )
-                ) {
-                    Text("Add Set")
-                }
-                
-                Button(
-                    onClick = onRemoveSet,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondary
-                    ),
-                    enabled = sets.isNotEmpty()
-                ) {
-                    Text("Remove Set")
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            Button(
-                onClick = onCompleteExercise,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isCompleted) 
-                        MaterialTheme.colorScheme.secondary 
-                    else 
-                        MaterialTheme.colorScheme.tertiary
-                )
-            ) {
-                Text(if (isCompleted) "Survey Complete" else "Complete Exercise & Survey")
             }
         }
     }
@@ -305,55 +336,147 @@ fun ExerciseCard(
 @Composable
 fun SetRow(
     set: ExerciseSet,
+    targetReps: Int,
+    targetWeight: Double,
+    workoutcycleNumber: Int,
     onUpdate: (Int, Double) -> Unit,
     onCompare: (Int, Double) -> Unit
 ) {
-    var reps by remember { mutableStateOf(set.reps.toString()) }
-    var weight by remember { mutableStateOf(set.weight.toString()) }
+    // Create lists for dropdown options with more manageable ranges
+    val repsOptions = (0..30).map { it.toString() }
+    // Weight options in increments of 5 lbs from 0 to 500
+    val weightOptions = (0..500).filter { it % 5 == 0 }.map { it.toString() }
+    
+    // Initialize selected values
+    var selectedReps by remember(set.reps) { mutableStateOf(if (set.reps > 0) set.reps.toString() else "0") }
+    var selectedWeight by remember(set.weight) { mutableStateOf(if (set.weight > 0) set.weight.toInt().toString() else "0") }
     var comparisonResult by remember { mutableStateOf<ComparisonResult?>(null) }
+    
+    // Update selected values when set changes
+    LaunchedEffect(set.reps) {
+        selectedReps = if (set.reps > 0) set.reps.toString() else "0"
+    }
+    
+    LaunchedEffect(set.weight) {
+        selectedWeight = if (set.weight > 0) set.weight.toInt().toString() else "0"
+    }
+    
+    // Dropdown states
+    var repsExpanded by remember { mutableStateOf(false) }
+    var weightExpanded by remember { mutableStateOf(false) }
     
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        // Left column with "Set #{number}" text
         Text(
-            text = "Set ${set.setNumber}",
-            modifier = Modifier.weight(1f)
-        )
-        OutlinedTextField(
-            value = weight,
-            onValueChange = { 
-                weight = it
-                reps.toIntOrNull()?.let { repValue ->
-                    it.toDoubleOrNull()?.let { weightValue ->
-                        onUpdate(repValue, weightValue)
-                        onCompare(repValue, weightValue)
-                    }
-                }
-            },
-            label = { Text("Weight") },
-            modifier = Modifier.weight(1f)
+            text = "Set #${set.setNumber}",
+            modifier = Modifier.width(60.dp)
         )
         
         Spacer(modifier = Modifier.width(8.dp))
         
-        OutlinedTextField(
-            value = reps,
-            onValueChange = { 
-                reps = it
-                it.toIntOrNull()?.let { repValue ->
-                    weight.toDoubleOrNull()?.let { weightValue ->
-                        onUpdate(repValue, weightValue)
-                        onCompare(repValue, weightValue)
+        // Weight dropdown with fixed width
+        Box(modifier = Modifier.weight(1f)) {
+            OutlinedTextField(
+                value = selectedWeight,
+                onValueChange = { },
+                label = { Text("Weight") },
+                modifier = Modifier.fillMaxWidth(),
+                readOnly = true,
+                trailingIcon = {
+                    IconButton(onClick = { weightExpanded = true }) {
+                        Icon(imageVector = Icons.Default.ArrowDropDown, contentDescription = "Expand weight options")
                     }
                 }
-            },
-            label = { Text("Reps") },
-            modifier = Modifier.weight(1f)
-        )
+            )
+            
+            DropdownMenu(
+                expanded = weightExpanded,
+                onDismissRequest = { weightExpanded = false },
+                modifier = Modifier.width(100.dp)
+            ) {
+                weightOptions.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option) },
+                        onClick = {
+                            selectedWeight = option
+                            weightExpanded = false
+                            val repValue = selectedReps.toIntOrNull() ?: 0
+                            val weightValue = option.toDoubleOrNull() ?: 0.0
+                            onUpdate(repValue, weightValue)
+                            onCompare(repValue, weightValue)
+                        }
+                    )
+                }
+            }
+        }
         
+        Spacer(modifier = Modifier.width(8.dp))
+        
+        // Reps dropdown with fixed width
+        Box(modifier = Modifier.weight(1f)) {
+            OutlinedTextField(
+                value = selectedReps,
+                onValueChange = { },
+                label = { Text("Reps") },
+                modifier = Modifier.fillMaxWidth(),
+                readOnly = true,
+                trailingIcon = {
+                    IconButton(onClick = { repsExpanded = true }) {
+                        Icon(imageVector = Icons.Default.ArrowDropDown, contentDescription = "Expand reps options")
+                    }
+                }
+            )
+            
+            DropdownMenu(
+                expanded = repsExpanded,
+                onDismissRequest = { repsExpanded = false },
+                modifier = Modifier.width(100.dp)
+            ) {
+                repsOptions.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option) },
+                        onClick = {
+                            selectedReps = option
+                            repsExpanded = false
+                            val repValue = option.toIntOrNull() ?: 0
+                            val weightValue = selectedWeight.toDoubleOrNull() ?: 0.0
+                            onUpdate(repValue, weightValue)
+                            onCompare(repValue, weightValue)
+                        }
+                    )
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.width(8.dp))
+        
+        // Target column with target symbol (only show for workouts after the first cycle)
+        if (workoutcycleNumber > 1) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.width(80.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.TrackChanges,
+                    contentDescription = "Target",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = "${targetWeight.toInt()}×${targetReps}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            // For first cycle, show empty column with fixed width
+            Spacer(modifier = Modifier.width(80.dp))
+        }
         
         comparisonResult?.let { result ->
             Icon(

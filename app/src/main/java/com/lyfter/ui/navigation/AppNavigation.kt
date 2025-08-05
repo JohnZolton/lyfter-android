@@ -21,9 +21,17 @@ fun AppNavigation(
         composable("home") {
             HomeScreen(navController)
         }
-        composable("workout/{category}") { backStackEntry ->
-            val category = backStackEntry.arguments?.getString("category") ?: "push"
-            WorkoutScreen(navController, category)
+        composable(
+            route = "workout/{workoutId}",
+            arguments = listOf(
+                androidx.navigation.navArgument("workoutId") {
+                    type = androidx.navigation.NavType.IntType
+                    defaultValue = 0
+                }
+            )
+        ) { backStackEntry ->
+            val workoutId = backStackEntry.arguments?.getInt("workoutId") ?: 0
+            WorkoutScreen(navController, workoutId)
         }
         composable("exercises") {
             ExerciseListScreen(navController)
@@ -31,8 +39,16 @@ fun AppNavigation(
         composable("create-workout-plan") {
             CreateWorkoutPlanScreen(navController, planId = null)
         }
-        composable("edit-workout-plan/{planId}") { backStackEntry ->
-            val planId = backStackEntry.arguments?.getString("planId")?.toLongOrNull()
+        composable(
+            route = "edit-workout-plan/{planId}",
+            arguments = listOf(
+                androidx.navigation.navArgument("planId") {
+                    type = androidx.navigation.NavType.IntType
+                    defaultValue = 0
+                }
+            )
+        ) { backStackEntry ->
+            val planId = backStackEntry.arguments?.getInt("planId")
             CreateWorkoutPlanScreen(navController, planId)
         }
     }
